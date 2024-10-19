@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("AsjZ3kWAUSQRNt2pZVeJkywhZ6gpLpHZmJjduPmKZDZZ"); //it will deploy on onchain program , it will update
+declare_id!("6eXbSWpMxbRWi1gyFAU75SaM9nZDBjbL6Cg14Xed79VP"); //it will deploy on onchain program , it will update
 
 #[program]
 pub mod dcrud {

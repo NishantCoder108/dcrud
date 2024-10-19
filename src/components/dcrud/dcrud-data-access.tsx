@@ -1,15 +1,20 @@
 'use client'
 
-import {getDcrudProgram, getDcrudProgramId} from '@project/anchor'
-import {useConnection} from '@solana/wallet-adapter-react'
-import {Cluster, Keypair, PublicKey} from '@solana/web3.js'
-import {useMutation, useQuery} from '@tanstack/react-query'
-import {useMemo} from 'react'
+import { getDcrudProgram, getDcrudProgramId } from '@project/anchor'
+import { useConnection } from '@solana/wallet-adapter-react'
+import { Cluster, Keypair, PublicKey } from '@solana/web3.js'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import toast from 'react-hot-toast'
-import {useCluster} from '../cluster/cluster-data-access'
-import {useAnchorProvider} from '../solana/solana-provider'
-import {useTransactionToast} from '../ui/ui-layout'
+import { useCluster } from '../cluster/cluster-data-access'
+import { useAnchorProvider } from '../solana/solana-provider'
+import { useTransactionToast } from '../ui/ui-layout'
 
+interface CreateEntryArgs {
+  title: string;
+  message: string;
+  owner: PublicKey;
+}
 export function useDcrudProgram() {
   const { connection } = useConnection()
   const { cluster } = useCluster()
@@ -18,9 +23,10 @@ export function useDcrudProgram() {
   const programId = useMemo(() => getDcrudProgramId(cluster.network as Cluster), [cluster])
   const program = getDcrudProgram(provider)
 
+  // Fetch data from program
   const accounts = useQuery({
     queryKey: ['dcrud', 'all', { cluster }],
-    queryFn: () => program.account.dcrud.all(),
+    queryFn: () => program.account.journalEntryState.all(),
   })
 
   const getProgramAccount = useQuery({
@@ -28,23 +34,31 @@ export function useDcrudProgram() {
     queryFn: () => connection.getParsedAccountInfo(programId),
   })
 
-  const initialize = useMutation({
-    mutationKey: ['dcrud', 'initialize', { cluster }],
-    mutationFn: (keypair: Keypair) =>
-      program.methods.initialize().accounts({ dcrud: keypair.publicKey }).signers([keypair]).rpc(),
-    onSuccess: (signature) => {
-      transactionToast(signature)
-      return accounts.refetch()
+  const createEntry = useMutation<string, Error, CreateEntryArgs>({
+    mutationKey: ["journalEntry", "create", { cluster }],
+    mutationFn: async ({ title, message, owner }) => {
+      const [journalEntryAddress] = await PublicKey.findProgramAddress(
+        [Buffer.from(title), owner.toBuffer()],
+        programId
+      );
+
+      return program.methods.createJournalEntry(title, message).rpc();
     },
-    onError: () => toast.error('Failed to initialize account'),
-  })
+    onSuccess: (signature) => {
+      transactionToast(signature);
+      accounts.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Failed to create journal entry: ${error.message}`);
+    },
+  });
 
   return {
     program,
     programId,
     accounts,
     getProgramAccount,
-    initialize,
+    createEntry
   }
 }
 
@@ -53,52 +67,43 @@ export function useDcrudProgramAccount({ account }: { account: PublicKey }) {
   const transactionToast = useTransactionToast()
   const { program, accounts } = useDcrudProgram()
 
+  // Fetch data from journal entry state
   const accountQuery = useQuery({
     queryKey: ['dcrud', 'fetch', { cluster, account }],
-    queryFn: () => program.account.dcrud.fetch(account),
+    queryFn: () => program.account.journalEntryState.fetch(account),
   })
 
-  const closeMutation = useMutation({
-    mutationKey: ['dcrud', 'close', { cluster, account }],
-    mutationFn: () => program.methods.close().accounts({ dcrud: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accounts.refetch()
+  const updateEntry = useMutation<string, Error, CreateEntryArgs>({
+    mutationKey: ["journalEntry", "update", { cluster }],
+    mutationFn: async ({ title, message, }) => {
+      return program.methods.updateJournalEntry(title, message).rpc();
     },
-  })
+    onSuccess: (signature) => {
+      transactionToast(signature);
+      accounts.refetch();
+    },
+    onError: (error) => {
+      toast.error(`Failed to update journal entry: ${error.message}`);
+    },
+  });
 
-  const decrementMutation = useMutation({
-    mutationKey: ['dcrud', 'decrement', { cluster, account }],
-    mutationFn: () => program.methods.decrement().accounts({ dcrud: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accountQuery.refetch()
-    },
-  })
 
-  const incrementMutation = useMutation({
-    mutationKey: ['dcrud', 'increment', { cluster, account }],
-    mutationFn: () => program.methods.increment().accounts({ dcrud: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accountQuery.refetch()
+  const deleteEntry = useMutation({
+    mutationKey: ["journalEntry", "delete", { cluster }],
+    mutationFn: (title: string) => {
+      return program.methods.deleteJournalEntry(title).rpc();
     },
-  })
 
-  const setMutation = useMutation({
-    mutationKey: ['dcrud', 'set', { cluster, account }],
-    mutationFn: (value: number) => program.methods.set(value).accounts({ dcrud: account }).rpc(),
     onSuccess: (tx) => {
-      transactionToast(tx)
-      return accountQuery.refetch()
+      transactionToast(tx);
+      accounts.refetch();
     },
-  })
+  });
 
   return {
     accountQuery,
-    closeMutation,
-    decrementMutation,
-    incrementMutation,
-    setMutation,
+    updateEntry,
+
+    deleteEntry
   }
 }
